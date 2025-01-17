@@ -1,0 +1,78 @@
+import pandas as pd
+from dash import Dash, html, dcc
+from dash.dependencies import Input, Output
+import plotly.express as px
+import dash_bootstrap_components as dbc
+import numpy as np
+from statsmodels.tsa.arima.model import ARIMA
+
+# Load historical data
+historical_data = pd.read_csv('electric_car_sales.csv')
+
+# Simulate real-time data (for demonstration purposes)
+def get_real_time_data():
+    current_year = pd.Timestamp.now().year
+    sales = np.random.randint(200000, 400000)  # Simulated sales data
+    return {'year': current_year, 'sales': sales}
+
+# Process historical data
+historical_data['ds'] = pd.to_datetime(historical_data['year'], format='%Y')
+historical_data.set_index('ds', inplace=True)
+
+# Forecasting with ARIMA
+def forecast_sales(data, periods=10):
+    model = ARIMA(data['sales'], order=(5, 1, 0))  # You can tune the order parameters
+    model_fit = model.fit()
+    forecast = model_fit.forecast(steps=periods)
+    forecast_years = [data.index[-1].year + i for i in range(1, periods + 1)]
+    forecast_df = pd.DataFrame({'year': forecast_years, 'sales': forecast.values})
+    forecast_df['ds'] = pd.to_datetime(forecast_df['year'], format='%Y')
+    return forecast_df
+
+# Forecast future sales
+forecast_df = forecast_sales(historical_data)
+
+# Initialize the Dash app
+app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+
+app.layout = dbc.Container([
+    dbc.Row([
+        dbc.Col(html.H1("Electric Car Sales Dashboard", className="text-center"), className="mb-5 mt-5")
+    ]),
+    dbc.Row([
+        dbc.Col(dcc.Graph(id='historical-graph'), width=12)
+    ]),
+    dbc.Row([
+        dbc.Col(dcc.Graph(id='forecast-graph'), width=12)
+    ]),
+    dcc.Interval(id='interval-component', interval=60*1000, n_intervals=0)  # Update every minute
+])
+
+@app.callback(
+    Output('historical-graph', 'figure'),
+    Output('forecast-graph', 'figure'),
+    Input('interval-component', 'n_intervals')
+)
+def update_graphs(n):
+    # Simulate real-time data
+    real_time_data = get_real_time_data()
+    real_time_df = pd.DataFrame([real_time_data])
+    real_time_df['ds'] = pd.to_datetime(real_time_df['year'], format='%Y')
+    real_time_df.set_index('ds', inplace=True)
+
+    # Combine historical and real-time data
+    combined_data = pd.concat([historical_data, real_time_df], ignore_index=False)
+
+    # Update forecast with new data
+    forecast_df = forecast_sales(combined_data)
+
+    # Historical graph
+    historical_fig = px.line(combined_data.reset_index(), x='ds', y='sales', title='Historical Electric Car Sales')
+
+    # Forecast graph
+    forecast_fig = px.line(forecast_df, x='ds', y='sales', title='Forecasted Electric Car Sales')
+
+    return historical_fig, forecast_fig
+
+if __name__ == '__main__':
+    app.run_server(debug=True)
